@@ -161,6 +161,33 @@ def humanize_time_ago(timestamp_str: str) -> str:
         return timestamp_str
 
 
+def normalize_port_name(port_name: str) -> str:
+    """
+    Normalize port names to match Moku API expectations.
+    
+    Converts common aliases to standard Moku library format:
+    - IN1, IN2, IN3, IN4 → Input1, Input2, Input3, Input4
+    - OUT1, OUT2, OUT3, OUT4 → Output1, Output2, Output3, Output4
+    
+    Args:
+        port_name: Port name (may be alias or standard format)
+        
+    Returns:
+        Normalized port name
+    """
+    # Map common aliases to standard names
+    port_aliases = {
+        'IN1': 'Input1', 'IN2': 'Input2', 'IN3': 'Input3', 'IN4': 'Input4',
+        'OUT1': 'Output1', 'OUT2': 'Output2', 'OUT3': 'Output3', 'OUT4': 'Output4',
+        # Also handle lowercase variants
+        'in1': 'Input1', 'in2': 'Input2', 'in3': 'Input3', 'in4': 'Input4',
+        'out1': 'Output1', 'out2': 'Output2', 'out3': 'Output3', 'out4': 'Output4',
+    }
+    
+    # Return normalized name if alias exists, otherwise return original
+    return port_aliases.get(port_name, port_name)
+
+
 def retrieve_current_state(moku: MultiInstrument, platform) -> MokuConfig:
     """
     Retrieve current device state as MokuConfig object.
@@ -179,7 +206,12 @@ def retrieve_current_state(moku: MultiInstrument, platform) -> MokuConfig:
     # Get current instruments
     instruments = moku.get_instruments()
     # instruments is a list[str] like ['CloudCompile', 'Oscilloscope', '', ''] or None if empty
+    logger.debug(f"get_instruments() returned: {instruments} (type: {type(instruments)})")
     if instruments is None:
+        instruments = []
+    elif not hasattr(instruments, '__iter__') or isinstance(instruments, (str, bytes)):
+        # Handle unexpected return types (not iterable, or string/bytes which are iterable but not what we want)
+        logger.warning(f"get_instruments() returned unexpected type: {type(instruments)}, treating as empty")
         instruments = []
 
     # Build slots dict
@@ -192,16 +224,28 @@ def retrieve_current_state(moku: MultiInstrument, platform) -> MokuConfig:
                 bitstream=None,  # Can't retrieve bitstream path from device
                 control_registers=None,  # Would need CloudCompile-specific API
             )
+    logger.debug(f"Built slots dict: {slots}")
 
     # Get current routing
     connections_raw = moku.get_connections()
     # connections_raw is list[dict] with 'source' and 'destination' keys, or None if empty
+    logger.debug(f"get_connections() returned: {connections_raw} (type: {type(connections_raw)})")
     if connections_raw is None:
         connections_raw = []
-    routing = [
-        MokuConnection(source=conn['source'], destination=conn['destination'])
-        for conn in connections_raw
-    ]
+    elif not hasattr(connections_raw, '__iter__') or isinstance(connections_raw, (str, bytes)):
+        # Handle unexpected return types (not iterable, or string/bytes which are iterable but not what we want)
+        logger.warning(f"get_connections() returned unexpected type: {type(connections_raw)}, treating as empty")
+        connections_raw = []
+    routing = []
+    for conn in connections_raw:
+        try:
+            if isinstance(conn, dict) and 'source' in conn and 'destination' in conn:
+                routing.append(MokuConnection(source=conn['source'], destination=conn['destination']))
+            else:
+                logger.warning(f"Skipping malformed connection: {conn}")
+        except Exception as e:
+            logger.warning(f"Error processing connection {conn}: {e}")
+    logger.debug(f"Built routing list: {[f'{c.source}→{c.destination}' for c in routing]}")
 
     # Create MokuConfig from current state
     # Use model_construct to bypass validation since empty slots is valid for retrieved state
@@ -688,7 +732,12 @@ def deploy(
 
         # Handle state mismatch
         if not state_diff['identical']:
-            if force_deploy:
+            # Auto-proceed if device is completely empty (safest case)
+            device_is_empty = len(current_state.slots) == 0 and len(current_state.routing) == 0
+            if device_is_empty:
+                console.print("\n[bold blue]Device is empty - safe to deploy[/bold blue]")
+                console.print("[dim]Auto-proceeding with deployment to empty device[/dim]")
+            elif force_deploy:
                 console.print("\n[bold yellow]Force mode (-F): Overriding state mismatch[/bold yellow]")
             elif interactive:
                 console.print("\n[yellow]State mismatch detected![/yellow]")
@@ -704,7 +753,11 @@ def deploy(
             else:
                 console.print("\n[red]✗ State mismatch detected![/red]")
                 console.print("[yellow]Current device state does not match desired deployment.[/yellow]")
-                console.print("[yellow]Use -I (interactive) to prompt, or -F (force) to override.[/yellow]")
+                console.print("\n[bold]Options to proceed:[/bold]")
+                console.print("  [cyan]-I[/cyan] or [cyan]--interactive[/cyan] : Prompt for confirmation")
+                console.print("  [cyan]-F[/cyan] or [cyan]--force-deploy[/cyan] : Force deployment (override state mismatch)")
+                console.print("\n[dim]Note: -f/--force only forces connection to busy devices, not deployment.[/dim]")
+                console.print("[dim]Use -F/--force-deploy to override state mismatches.[/dim]")
                 moku.relinquish_ownership()
                 raise typer.Exit(1)
         else:
@@ -724,15 +777,45 @@ def deploy(
                 console.print(f"    Bitstream: {Path(slot_config.bitstream).name}")
 
                 # Deploy CloudCompile with custom bitstream
-                moku.set_instrument(slot_num, CloudCompile, bitstream=slot_config.bitstream)
+                # set_instrument() returns the instrument instance
+                cc = moku.set_instrument(slot_num, CloudCompile, bitstream=slot_config.bitstream)
                 console.print(f"  ✓ Deployed to slot {slot_num}")
 
                 # Apply control registers if specified
                 if slot_config.control_registers:
-                    cc = moku.get_instrument(slot_num)
+                    # Try set_controls() first (bulk update), fall back to set_control() (individual)
                     if hasattr(cc, 'set_controls'):
-                        cc.set_controls(slot_config.control_registers)
-                        console.print(f"    Applied {len(slot_config.control_registers)} control register(s)")
+                        try:
+                            cc.set_controls(slot_config.control_registers)
+                            console.print(f"    Applied {len(slot_config.control_registers)} control register(s) via set_controls()")
+                        except Exception as e:
+                            logger.warning(f"set_controls() failed: {e}, falling back to set_control()")
+                            # Fallback: try set_control for individual registers
+                            if hasattr(cc, 'set_control'):
+                                success_count = 0
+                                for reg_num, reg_value in sorted(slot_config.control_registers.items()):
+                                    try:
+                                        cc.set_control(reg_num, reg_value)
+                                        success_count += 1
+                                    except Exception as e2:
+                                        logger.warning(f"Failed to set CR{reg_num} = {reg_value}: {e2}")
+                                console.print(f"    Applied {success_count}/{len(slot_config.control_registers)} control register(s) via set_control()")
+                            else:
+                                console.print(f"    [red]Error: Cannot set control registers - no methods available[/red]")
+                                logger.error(f"set_controls() failed and set_control() not available")
+                    elif hasattr(cc, 'set_control'):
+                        # Only set_control() available, use it directly
+                        success_count = 0
+                        for reg_num, reg_value in sorted(slot_config.control_registers.items()):
+                            try:
+                                cc.set_control(reg_num, reg_value)
+                                success_count += 1
+                            except Exception as e:
+                                logger.warning(f"Failed to set CR{reg_num} = {reg_value}: {e}")
+                        console.print(f"    Applied {success_count}/{len(slot_config.control_registers)} control register(s) via set_control()")
+                    else:
+                        console.print(f"    [yellow]Warning: Cannot set control registers - no methods available[/yellow]")
+                        logger.warning(f"CloudCompile instance has no set_controls() or set_control() methods")
 
             elif slot_config.instrument == 'Oscilloscope':
                 console.print(f"  Slot {slot_num}: Oscilloscope")
@@ -752,12 +835,43 @@ def deploy(
         # Configure routing
         if desired_config.routing:
             console.print("\n[5/4] Configuring routing...")
-            connections = [conn.to_dict() for conn in desired_config.routing]
-            moku.set_connections(connections)
-            console.print(f"  ✓ Configured {len(connections)} connection(s)")
-
+            # Normalize port names to match Moku API expectations
+            connections = []
             for conn in desired_config.routing:
-                console.print(f"    {conn.source} → {conn.destination}")
+                normalized_conn = {
+                    'source': normalize_port_name(conn.source),
+                    'destination': normalize_port_name(conn.destination)
+                }
+                connections.append(normalized_conn)
+                # Log if normalization changed the name
+                if normalized_conn['source'] != conn.source or normalized_conn['destination'] != conn.destination:
+                    logger.debug(f"Normalized: {conn.source}→{conn.destination} to {normalized_conn['source']}→{normalized_conn['destination']}")
+            
+            try:
+                moku.set_connections(connections)
+                console.print(f"  ✓ Configured {len(connections)} connection(s)")
+                for conn in desired_config.routing:
+                    normalized_source = normalize_port_name(conn.source)
+                    normalized_dest = normalize_port_name(conn.destination)
+                    console.print(f"    {normalized_source} → {normalized_dest}")
+            except Exception as e:
+                error_msg = str(e)
+                console.print(f"  [red]✗ Failed to configure routing: {error_msg}[/red]")
+                logger.error(f"Routing configuration failed: {e}")
+                logger.debug(f"Connection list: {connections}")
+                
+                # Provide helpful error messages for common issues
+                if "Source port is not valid" in error_msg or "not valid in the given configuration" in error_msg:
+                    console.print("\n[yellow]Possible causes:[/yellow]")
+                    console.print("  • Port may not be available for this instrument/platform combination")
+                    console.print("  • CloudCompile on Moku:Go may only support OutA, OutB, OutC (not OutD)")
+                    console.print("  • Bitstream may not expose all output ports")
+                    console.print("\n[yellow]Try:[/yellow]")
+                    console.print("  • Use OutA, OutB, or OutC instead of OutD")
+                    console.print("  • Check bitstream configuration for available outputs")
+                    console.print("  • Verify platform supports the requested port")
+                
+                raise
         else:
             console.print("\n[5/4] No routing changes needed")
 
@@ -798,6 +912,277 @@ def deploy(
             logger.exception("Deployment error (debug mode)")
         else:
             logger.exception("Deployment error")
+        raise typer.Exit(1)
+
+
+@app.command()
+def export_config(
+    device: str = typer.Option(..., "--device", "-d", help="Device IP address or name"),
+    output: Path = typer.Option("current_state.mokuconf", "--output", "-o", help="Output .mokuconf file path"),
+    force: bool = typer.Option(False, "--force", "-f", help="Force connection (override busy device)"),
+):
+    """
+    Export current device state as .mokuconf file.
+
+    This command:
+    1. Connects to device with persist_state=True
+    2. Calls moku.save_configuration() to export .mokuconf
+    3. Saves to specified output path
+
+    The .mokuconf file contains:
+    - Multi-instrument configuration
+    - Instrument deployments (slots)
+    - Routing connections
+    - AFE settings (input/output ranges, coupling, impedance)
+    - DIO configuration (if applicable)
+    """
+    # Resolve device identifier to IP
+    cache = load_cache()
+    device_info = cache.find_by_identifier(device)
+
+    if device_info:
+        ip = device_info.ip
+        console.print(f"[blue]Using cached device: {device_info.canonical_name or ip}[/blue]")
+    elif '.' in device and device.replace('.', '').isdigit():
+        ip = device
+    else:
+        console.print(f"[red]Device '{device}' not found. Run 'discover' first or use IP address.[/red]")
+        raise typer.Exit(1)
+
+    console.print("=" * 80)
+    console.print("Moku Configuration Export")
+    console.print("=" * 80)
+    console.print(f"Target IP: {ip}")
+    console.print(f"Output file: {output}")
+    console.print()
+
+    try:
+        # Connect to device with persist_state=True (don't disrupt current state)
+        console.print("[1/3] Connecting to device...")
+
+        # We don't know platform_id ahead of time, so try to detect it
+        # Option 1: Use cache
+        # Option 2: Try common platform IDs (Go=2, Lab=1, Pro=3, Delta=4)
+        platform_id = 2  # Default to Moku:Go
+        if device_info and hasattr(device_info, 'platform_id'):
+            platform_id = device_info.platform_id
+
+        try:
+            moku = MultiInstrument(
+                ip,
+                platform_id=platform_id,
+                force_connect=force,
+                persist_state=True  # Don't disrupt current state
+            )
+            console.print(f"  ✓ Connected (platform_id={platform_id})")
+        except Exception as e:
+            error_msg = str(e)
+            if "API Connection already exists" in error_msg or "already exists" in error_msg.lower():
+                if not force:
+                    console.print(f"\n[red]✗ Connection failed: Device is already connected[/red]")
+                    console.print("[yellow]Use --force (-f) to override the existing connection.[/yellow]")
+                    raise typer.Exit(1)
+                else:
+                    raise
+            else:
+                raise
+
+        # Export configuration
+        console.print("\n[2/3] Exporting configuration...")
+        output_path = Path(output).absolute()
+        moku.save_configuration(str(output_path))
+        console.print(f"  ✓ Exported to {output_path.name}")
+
+        # Show summary
+        console.print("\n[3/3] Configuration summary:")
+        instruments = moku.get_instruments()
+        connections = moku.get_connections()
+
+        console.print(f"  Instruments: {len([i for i in instruments if i])} deployed")
+        for slot_num, instr in enumerate(instruments, start=1):
+            if instr:
+                console.print(f"    Slot {slot_num}: {instr}")
+
+        console.print(f"  Routing: {len(connections) if connections else 0} connection(s)")
+        if connections:
+            for conn in connections[:5]:  # Show first 5
+                console.print(f"    {conn['source']} → {conn['destination']}")
+            if len(connections) > 5:
+                console.print(f"    ... and {len(connections) - 5} more")
+
+        console.print("\n" + "=" * 80)
+        console.print("[green]✓ Export successful![/green]")
+        console.print("=" * 80)
+        console.print(f"\nSaved to: {output_path}")
+        console.print("\n[dim]This .mokuconf file can be:[/dim]")
+        console.print("[dim]  - Loaded back to device: moku-deploy.py import-config -d <ip> -i <file>[/dim]")
+        console.print("[dim]  - Converted to YAML: moku-deploy.py import-config -d <ip> -i <file> --to-yaml <output.yaml>[/dim]")
+
+        moku.relinquish_ownership()
+
+    except typer.Exit:
+        raise
+    except Exception as e:
+        console.print(f"\n[red]✗ Export failed: {e}[/red]")
+        logger.exception("Export error")
+        raise typer.Exit(1)
+
+
+@app.command()
+def import_config(
+    device: str = typer.Option(..., "--device", "-d", help="Device IP address or name"),
+    input_file: Path = typer.Option(..., "--input", "-i", help="Input .mokuconf file path"),
+    to_yaml: Optional[Path] = typer.Option(None, "--to-yaml", help="Convert to YAML and save (without deploying)"),
+    force: bool = typer.Option(False, "--force", "-f", help="Force connection (override busy device)"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show what would be imported without deploying"),
+):
+    """
+    Import .mokuconf file to device or convert to YAML.
+
+    This command supports two modes:
+
+    1. Deploy mode (default):
+       - Loads .mokuconf to device using moku.load_configuration()
+       - Retrieves deployed state via introspection APIs
+       - Displays deployed configuration
+
+    2. Convert mode (--to-yaml):
+       - Loads .mokuconf to device temporarily
+       - Retrieves state via introspection APIs
+       - Converts to MokuConfig YAML format
+       - Saves YAML for future deployments
+       - Useful for converting GUI-created configs to declarative YAML
+    """
+    # Validate input file exists
+    if not input_file.exists():
+        console.print(f"[red]Input file not found: {input_file}[/red]")
+        raise typer.Exit(1)
+
+    # Resolve device identifier to IP
+    cache = load_cache()
+    device_info = cache.find_by_identifier(device)
+
+    if device_info:
+        ip = device_info.ip
+        console.print(f"[blue]Using cached device: {device_info.canonical_name or ip}[/blue]")
+    elif '.' in device and device.replace('.', '').isdigit():
+        ip = device
+    else:
+        console.print(f"[red]Device '{device}' not found. Run 'discover' first or use IP address.[/red]")
+        raise typer.Exit(1)
+
+    console.print("=" * 80)
+    console.print("Moku Configuration Import")
+    console.print("=" * 80)
+    console.print(f"Target IP: {ip}")
+    console.print(f"Input file: {input_file}")
+    if to_yaml:
+        console.print(f"Convert to YAML: {to_yaml}")
+    if dry_run:
+        console.print("[yellow]DRY RUN MODE - No deployment will occur[/yellow]")
+    console.print()
+
+    try:
+        # Detect platform from .mokuconf file
+        console.print("[1/4] Analyzing .mokuconf file...")
+        import zipfile
+        with zipfile.ZipFile(input_file, 'r') as zf:
+            mi_compat = json.loads(zf.read('MI_Config_compatibility.json'))
+            platform_id = mi_compat['platformID']
+            layout = mi_compat['layout']
+
+            platform_names = {1: 'Moku:Lab', 2: 'Moku:Go', 3: 'Moku:Pro', 4: 'Moku:Delta'}
+            platform_name = platform_names.get(platform_id, f'Unknown({platform_id})')
+
+            console.print(f"  Platform: {platform_name} (ID={platform_id})")
+            console.print(f"  Layout: {layout['slots']} slots, {layout['aIn']}x inputs, {layout['aOut']}x outputs")
+
+        if dry_run:
+            console.print("\n[yellow]DRY RUN - Would load configuration to device[/yellow]")
+            console.print("=" * 80)
+            return
+
+        # Connect to device
+        console.print("\n[2/4] Connecting to device...")
+        try:
+            moku = MultiInstrument(
+                ip,
+                platform_id=platform_id,
+                force_connect=force,
+                persist_state=True
+            )
+            console.print(f"  ✓ Connected")
+        except Exception as e:
+            error_msg = str(e)
+            if "API Connection already exists" in error_msg or "already exists" in error_msg.lower():
+                if not force:
+                    console.print(f"\n[red]✗ Connection failed: Device is already connected[/red]")
+                    console.print("[yellow]Use --force (-f) to override the existing connection.[/yellow]")
+                    raise typer.Exit(1)
+                else:
+                    raise
+            else:
+                raise
+
+        # Load configuration to device
+        console.print("\n[3/4] Loading configuration to device...")
+        moku.load_configuration(str(input_file))
+        console.print("  ✓ Configuration loaded")
+
+        # Retrieve deployed state
+        console.print("\n[4/4] Retrieving deployed state...")
+        platform_obj = PLATFORM_NAME_TO_OBJECT.get(platform_name, MOKU_GO_PLATFORM)
+        platform_copy = platform_obj.model_copy()
+        platform_copy.ip_address = ip
+
+        deployed_state = retrieve_current_state(moku, platform_copy)
+        console.print(f"  ✓ Retrieved: {len(deployed_state.slots)} slot(s), {len(deployed_state.routing)} connection(s)")
+
+        # Display deployed configuration
+        console.print("\n" + "=" * 80)
+        console.print("Deployed Configuration")
+        console.print("=" * 80)
+
+        console.print("\n📦 Instruments:")
+        for slot_num, slot_config in deployed_state.slots.items():
+            console.print(f"  Slot {slot_num}: {slot_config.instrument}")
+
+        console.print(f"\n🔌 Routing ({len(deployed_state.routing)} connections):")
+        for conn in deployed_state.routing:
+            console.print(f"  {conn.source} → {conn.destination}")
+
+        # Convert to YAML if requested
+        if to_yaml:
+            console.print("\n" + "=" * 80)
+            console.print("Converting to YAML")
+            console.print("=" * 80)
+
+            # Convert MokuConfig to YAML
+            yaml_data = deployed_state.model_dump(mode='json', exclude_none=True)
+
+            # Convert platform object to string identifier for readability
+            if 'platform' in yaml_data:
+                yaml_data['platform'] = platform_name.lower().replace(':', '_')
+
+            yaml_output = yaml.dump(yaml_data, default_flow_style=False, sort_keys=False)
+
+            to_yaml_path = Path(to_yaml).absolute()
+            to_yaml_path.write_text(yaml_output)
+
+            console.print(f"  ✓ Saved YAML to {to_yaml_path.name}")
+            console.print(f"\n[dim]This YAML can be used with: moku-deploy.py deploy -d <ip> -c {to_yaml_path.name}[/dim]")
+
+        console.print("\n" + "=" * 80)
+        console.print("[green]✓ Import successful![/green]")
+        console.print("=" * 80)
+
+        moku.relinquish_ownership()
+
+    except typer.Exit:
+        raise
+    except Exception as e:
+        console.print(f"\n[red]✗ Import failed: {e}[/red]")
+        logger.exception("Import error")
         raise typer.Exit(1)
 
 
