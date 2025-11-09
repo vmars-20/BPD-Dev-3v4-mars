@@ -1,0 +1,1 @@
+../../../Handoffs/2025-11-07/2025-11-07-handoff-7-cocotb-test-design.md

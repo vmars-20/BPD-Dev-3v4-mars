@@ -1,0 +1,149 @@
+# BPD Deployment Configuration - Setup 1: Dummy-DUT
+# Self-contained testing without external hardware target
+# Oscilloscope generates synthetic trigger for BPD closed-loop testing
+
+platform: moku_go
+description: >
+  Basic Probe Driver (BPD) deployment with internal dummy DUT.
+  Slot1 Oscilloscope generates synthetic trigger signal for Slot2 BPD.
+  BPD-Debug-Bus (14-bit HVS) routed to oscilloscope for FSM monitoring.
+  Suitable for: Initial bring-up, FSM debugging, probe characterization.
+
+slots:
+  1:
+    instrument: Oscilloscope
+    settings:
+      sample_rate: 125e6  # 125 MSa/s (native Moku:Go rate)
+      # InputA: BPD-Debug-Bus (14-bit HVS encoded voltage)
+      # InputB: Probe monitor feedback (optional, from PHY_IN2)
+      # OutputA: Synthetic trigger_in signal (simulates DUT)
+    description: >
+      Monitors BPD-Debug-Bus on InputA and optionally probe current on InputB.
+      OutputA generates synthetic trigger signal for BPD testing.
+
+  2:
+    instrument: CloudCompile
+    bitstream: examples/basic-probe-driver/bitstream/bpd_moku_go.tar
+    control_registers:
+      # CR0: FORGE control scheme (set by deployment automation)
+      # CR0[31] = forge_ready (set by loader after deployment)
+      # CR0[30] = user_enable (controlled by operator)
+      # CR0[29] = clk_enable (controlled by operator)
+      # Initial state: All disabled (0x00000000) - safe default
+      0: 0x00000000
+
+      # CR1: Lifecycle control (all disabled initially)
+      # [0]: arm_enable = 0
+      # [1]: ext_trigger_in = 0
+      # [2]: auto_rearm_enable = 0
+      # [3]: fault_clear = 0
+      1: 0x00000000
+
+      # CR2: trig_out_voltage = 0 mV (disabled)
+      2: 0x0000
+
+      # CR3: trig_out_duration = 100 ns (default)
+      3: 0x0064
+
+      # CR4: intensity_voltage = 0 mV (disabled)
+      4: 0x0000
+
+      # CR5: intensity_duration = 200 ns (default)
+      5: 0x00C8
+
+      # CR6: trigger_wait_timeout = 2s (default)
+      6: 0x0002
+
+      # CR7: cooldown_interval = 10 µs (default, safe for thermal management)
+      7: 0x00000A
+
+      # CR8: Monitor control
+      # [0]: monitor_enable = 1 (enabled)
+      # [1]: monitor_expect_negative = 1 (DS1120A characteristic)
+      8: 0x00000003
+
+      # CR9: monitor_threshold_voltage = -200 mV (default)
+      9: 0xFF38  # -200 in signed 16-bit
+
+      # CR10: monitor_window_start = 0 ns (immediate)
+      10: 0x00000000
+
+      # CR11: monitor_window_duration = 5000 ns (default)
+      11: 0x00001388
+
+    description: >
+      BPD custom instrument with FORGE 3-layer architecture.
+      InputA: Dummy-DUT trigger from Slot1.OutputA
+      InputB: Probe monitor feedback (from PHY_IN2)
+      OutputA: Probe digital_glitch trigger (to PHY_OUT1)
+      OutputB: Probe pulse_amplitude intensity (to PHY_OUT2)
+      OutputD: BPD-Debug-Bus (14-bit HVS to Slot1.InputA)
+
+routing:
+  # BPD-Debug-Bus: Slot2.OutputD → Slot1.InputA (oscilloscope monitoring)
+  - source: Slot2OutD
+    destination: Slot1InA
+    description: "BPD-Debug-Bus (14-bit HVS encoded FSM state)"
+
+  # Dummy-DUT trigger: Slot1.OutputA → Slot2.InputA (synthetic trigger)
+  - source: Slot1OutA
+    destination: Slot2InA
+    description: "Synthetic DUT trigger from oscilloscope waveform generator"
+
+  # Probe monitor feedback: PHY_IN2 → Slot2.InputB (ADC input)
+  - source: IN2
+    destination: Slot2InB
+    description: "Probe coil_current monitor (DS1120A, -1.4V to 0V, AC coupled)"
+
+  # Optional: Probe monitor also routed to oscilloscope for dual visualization
+  - source: IN2
+    destination: Slot1InB
+    description: "Probe monitor feedback to oscilloscope (optional dual monitoring)"
+
+  # Probe trigger output: Slot2.OutputA → PHY_OUT1 (digital_glitch)
+  - source: Slot2OutA
+    destination: OUT1
+    description: "Probe digital_glitch trigger (DS1120A, 0-3.3V TTL)"
+
+  # Probe intensity output: Slot2.OutputB → PHY_OUT2 (pulse_amplitude)
+  - source: Slot2OutB
+    destination: OUT2
+    description: "Probe pulse_amplitude control (DS1120A, 0-3.3V analog)"
+
+physical_connections:
+  # These are operator-performed wire connections (not MCC routing)
+  - from: PHY_OUT1
+    to: DS1120A.digital_glitch
+    cable: "BNC 50Ω"
+    voltage: "0-3.3V TTL"
+    description: "Trigger signal to probe"
+
+  - from: PHY_OUT2
+    to: DS1120A.pulse_amplitude
+    cable: "BNC 50Ω"
+    voltage: "0-3.3V analog"
+    description: "Intensity control to probe"
+
+  - from: DS1120A.coil_current
+    to: PHY_IN2
+    cable: "BNC 50Ω, AC coupled"
+    voltage: "-1.4V to 0V"
+    description: "Probe current monitor feedback (optional)"
+
+  - from: DS1120A.power_24vdc
+    to: External_PSU
+    cable: "Manufacturer-provided power cable"
+    voltage: "24-450V DC"
+    description: "External power supply (NOT from Moku)"
+
+metadata:
+  version: "1.0.0"
+  created: "2025-11-07"
+  test_campaign: "BPD Integration Testing - Phase 1"
+  notes: >
+    Initial deployment configuration for BPD validation.
+    Use this setup for:
+    - FSM state machine debugging (via BPD-Debug-Bus)
+    - Probe characterization without DUT
+    - Closed-loop timing validation
+    - Safe bring-up before live FI campaigns
