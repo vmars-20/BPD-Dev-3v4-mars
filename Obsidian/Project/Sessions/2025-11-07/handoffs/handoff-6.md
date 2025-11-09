@@ -1,0 +1,1 @@
+../../../Handoffs/2025-11-07/2025-11-07-handoff-6-hierarchical-voltage-encoding.md

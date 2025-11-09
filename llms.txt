@@ -1,0 +1,331 @@
+# Moku Instrument Forge - Monorepo Template
+
+> Template for Moku platform development with custom probe integration
+
+## What is this?
+
+**Platform-aware FPGA development monorepo** for Moku instruments (Go/Lab/Pro/Delta) with probe integration.
+
+**🔴 MANDATORY FIRST READ:** [libs/moku-models/llms.txt](libs/moku-models/llms.txt) - Platform specifications ARE CRITICAL!
+- Clock frequencies, DAC/ADC ranges, slot counts differ per platform
+- Your VHDL must respect platform constraints
+- Digital → Voltage mapping is platform-specific
+
+**Architecture Binding:** [libs/platform/](libs/platform/) contains authoritative templates:
+- `MCC_CustomInstrument.vhd` - Vendor interface (DO NOT MODIFY)
+- `FORGE_App_Wrapper.vhd` - 3-layer template (CUSTOMIZE)
+
+**CRITICAL:** All instruments implement **FORGE Control Scheme (CR0[31:29])** - 3-bit handshaking for safe initialization.
+
+**Digital Scaling:** Components output digital codes, platforms map to voltages. See forge-vhdl for philosophy.
+
+## Repository Structure
+
+### Foundational VHDL Entities (libs/platform/)
+
+| File | Purpose | Status |
+|------|---------|--------|
+| [MCC_CustomInstrument.vhd](libs/platform/MCC_CustomInstrument.vhd) | **Authoritative** MCC interface entity (16 CR, 16 SR) | DO NOT MODIFY |
+| [FORGE_App_Wrapper.vhd](libs/platform/FORGE_App_Wrapper.vhd) | **Template** for FORGE 3-layer architecture | CUSTOMIZE |
+
+**Key Concepts:**
+- MCC CustomInstrument: Vendor interface (simplified from upstream)
+- FORGE Control Scheme: CR0[31:29] = forge_ready, user_enable, clk_enable
+- app_reg_* abstraction: Main app is Control Register agnostic!
+- ready_for_updates handshaking: Protects FSM from async register changes
+
+**For Details:** See [CLAUDE.md](CLAUDE.md) - "MCC CustomInstrument Interface" section
+
+### Core Platform Models (REVIEW THESE FIRST!)
+
+| Component | Purpose | Quick Ref |
+|-----------|---------|-----------|
+| [moku-models](libs/moku-models/) | **🔴 REQUIRED** - Platform specs (clocks, DAC ranges, slots) | [llms.txt](libs/moku-models/llms.txt) |
+| [riscure-models](libs/riscure-models/) | Probe voltage safety specs (DS1120A EMFI reference) | [llms.txt](libs/riscure-models/llms.txt) |
+
+**Why platform models matter:**
+- Moku Go: 125 MHz clock, ±5V DAC, 2 slots
+- Moku Lab/Pro: 200 MHz clock, different constraints
+- **Your code MUST adapt to platform differences!**
+
+### VHDL Development Tools (git submodules)
+
+| Component | Purpose | Quick Ref |
+|-----------|---------|-----------|
+| [forge-codegen](tools/forge-codegen/) | YAML → VHDL code generator (23-type system) | [llms.txt](tools/forge-codegen/llms.txt) |
+| [forge-vhdl](libs/forge-vhdl/) | **Platform-agnostic** components (digital domain) | [llms.txt](libs/forge-vhdl/llms.txt) |
+
+**Digital Scaling Philosophy (forge-vhdl):**
+- Components output digital codes (signed 16-bit)
+- Platform maps digital → voltage (DAC configuration)
+- Voltage packages are conversion utilities ONLY
+
+**Internal to forge-codegen:**
+- `basic_serialized_datatypes/` - 23-type system (voltage/time/boolean) with automatic register packing
+- Not a separate library, tightly coupled serialization internals
+
+**Design Philosophy:**
+- forge-vhdl: Practical VHDL utilities (3 voltage domains: 3.3V, 5V, ±5V)
+- forge-codegen: Comprehensive code generation (23 types, auto register packing)
+- Clean separation of concerns
+
+**Voltage Type System:** Function-based voltage domain safety
+- Design: [docs/migration/VOLTAGE_TYPE_SYSTEM_DESIGN.md](docs/migration/VOLTAGE_TYPE_SYSTEM_DESIGN.md)
+- Python reference: [docs/migration/voltage_types_reference.py](docs/migration/voltage_types_reference.py)
+
+### Obsidian Workspace Integration
+
+| Component | Purpose | Quick Ref |
+|-----------|---------|-----------|
+| [Obsidian/](Obsidian/) | Git-first collaboration workspace for agent-human coordination | [Project/README.md](Obsidian/Project/README.md) |
+
+**Parallel PDA Pattern:**
+- **Code/architecture:** llms.txt → CLAUDE.md → source (for VHDL/Python/YAML)
+- **Session/collaboration:** Obsidian/Project/README.md → subdirectory READMEs → handoff/session files
+
+**Vault-at-Repo-Root Design:**
+- Obsidian vault root = git repository root
+- Enables bidirectional wikilinks: `[[CLAUDE.md]]` (code) ↔ `[[Obsidian/Project/Handoffs/handoff-1.md]]` (session)
+- Two documentation worlds coexist without interference
+
+**Session Management:**
+- `/obsd_new_session` - Start session with goals, optional git branch
+- `/obsd_continue_session` - Resume with context load (commits + handoffs)
+- `/obsd_close_session` - Archive session + harvest `/compact` summary
+
+**Key Features:**
+- **Vault root = repo root** - Wikilinks to code files work naturally (e.g., `[[CLAUDE.md]]`, `[[libs/forge-vhdl/llms.txt]]`)
+- **Attention routing** - `@claude` / `@human` mentions for task delegation
+- **Session handoffs** - Ephemeral notes in `Project/Handoffs/` for multi-session work
+- **Context compaction integration** - `/obsd_close_session` harvests `/compact` summary
+- **Templater templates** - 6 templates (handoff, session-plan, session-summary, etc.)
+
+**Structure:**
+```
+Obsidian/
+├── Project/
+│   ├── Handoffs/YYYY-MM-DD/       # Session continuation (ephemeral)
+│   ├── Sessions/YYYY-MM-DD/       # Daily archives (permanent)
+│   ├── Prompts/                   # Reusable prompt library
+│   └── README.md                  # Entry point (not llms.txt!)
+└── Templates/                     # Templater templates (6 templates)
+```
+
+**Git Integration:**
+- Handoffs = ephemeral working memory (delete after commit)
+- Sessions = permanent archives (committed)
+- Git commits = source of truth
+
+**Relationship to .claude/:**
+- `.claude/` - Agent infrastructure (system-level)
+- `Obsidian/` - User workspace (collaboration-level)
+- Both coexist with different purposes
+
+**When to use:**
+- Multi-session work requiring context preservation
+- Context compaction harvesting (>80% token usage)
+- Coordinating complex tasks with human decision points
+
+## Common Workflows
+
+### FORGE Architecture Development
+**Task:** "Build new custom instrument with FORGE pattern"
+**→ Start:** [CLAUDE.md](CLAUDE.md) - "FORGE 3-Layer Architecture" section
+**→ Template:** [libs/platform/FORGE_App_Wrapper.vhd](libs/platform/FORGE_App_Wrapper.vhd)
+**→ Reference:** [examples/basic-probe-driver/vhdl/](examples/basic-probe-driver/vhdl/) - Production BPD implementation
+**→ Entity:** [libs/platform/MCC_CustomInstrument.vhd](libs/platform/MCC_CustomInstrument.vhd) - Vendor interface
+
+**Key Steps:**
+1. Define app_reg_* signals (typed, meaningful names)
+2. Implement Layer 2 shim (CR unpacking + ready_for_updates sync)
+3. Implement Layer 3 main (FSM logic, Control Register agnostic)
+4. Wire FORGE control scheme (CR0[31:29])
+
+### Type System Lookup
+**Task:** "What voltage types are available?"
+**→ Read:** [tools/forge-codegen/llms.txt](tools/forge-codegen/llms.txt) (section: "Basic Usage" → Type System)
+
+### Platform Specs Lookup
+**Task:** "What's Moku:Go clock frequency?"
+**→ Read:** [libs/moku-models/llms.txt](libs/moku-models/llms.txt)
+
+### Code Generation
+**Task:** "Generate VHDL from YAML spec"
+**→ Read:** [tools/forge-codegen/llms.txt](tools/forge-codegen/llms.txt)
+**→ Entry point:** `python -m forge_codegen.generator.codegen spec.yaml`
+
+### VHDL Component Usage
+**Task:** "Use clock divider or voltage packages"
+**→ Read:** [libs/forge-vhdl/llms.txt](libs/forge-vhdl/llms.txt)
+
+### Platform Validation
+**Task:** "Validate deployment config"
+**→ Read:** [libs/moku-models/llms.txt](libs/moku-models/llms.txt)
+
+### Voltage Safety Checking
+**Task:** "Validate probe wiring compatibility"
+**→ Read:** [libs/moku-models/llms.txt](libs/moku-models/llms.txt) + [libs/riscure-models/llms.txt](libs/riscure-models/llms.txt)
+
+## Tiered Context Loading Strategy
+
+### Tier 1: Quick Reference (Always load first)
+**Files:** All llms.txt files (~150-200 lines each)
+**Purpose:** Essential facts, API surface, common tasks
+**When:** Every interaction - minimal token cost (~500-1000 tokens each)
+
+**Load these first:**
+- tools/forge-codegen/llms.txt
+- libs/forge-vhdl/llms.txt
+- libs/moku-models/llms.txt
+- libs/riscure-models/llms.txt
+- Obsidian/llms.txt (if using workspace features)
+
+### Tier 2: Deep Context (Load when designing/integrating)
+**Files:** CLAUDE.md files (~3-5k tokens each)
+**Purpose:** Design rationale, integration patterns, development workflows
+**When:** Designing new features, understanding architecture
+
+**Load when needed:**
+- tools/forge-codegen/CLAUDE.md (code generation internals)
+- libs/forge-vhdl/CLAUDE.md (VHDL design patterns, testing standards)
+- libs/moku-models/CLAUDE.md (platform integration)
+- libs/riscure-models/CLAUDE.md (probe specifications)
+
+### Tier 3: Implementation (Load when modifying code)
+**Files:** Agent prompts, source code, tests, specialized docs
+**Purpose:** Detailed implementation logic
+**When:** Actually writing/modifying code
+
+**Load selectively:**
+- .claude/agents/*/agent.md (monorepo orchestration agents)
+- tools/forge-codegen/docs/ (detailed guides, references)
+- Source files in specific submodules
+- Test files for validation
+
+## For AI Agents
+
+### Context Decision Tree
+
+**Question type** → **Load strategy**
+
+"What is FORGE architecture?" → Tier 1: This file + CLAUDE.md MCC section
+
+"How do I implement FORGE pattern?" → Tier 2: CLAUDE.md + libs/platform/FORGE_App_Wrapper.vhd
+
+"What types exist?" → Tier 1: tools/forge-codegen/llms.txt
+
+"How do I add a new type?" → Tier 2: tools/forge-codegen/CLAUDE.md
+
+"Generate VHDL from YAML" → Tier 1: tools/forge-codegen/llms.txt
+
+"Use VHDL components" → Tier 1: libs/forge-vhdl/llms.txt
+
+"Platform compatibility?" → Tier 1: libs/moku-models/llms.txt
+
+"Probe voltage safety?" → Tier 1: libs/moku-models/llms.txt + libs/riscure-models/llms.txt
+
+### Authoritative Sources
+
+**Always trust these libraries:**
+- **FORGE architecture** → libs/platform/ (MCC_CustomInstrument.vhd, FORGE_App_Wrapper.vhd)
+- **FORGE control scheme** → CLAUDE.md + libs/forge-vhdl/vhdl/packages/forge_common_pkg.vhd
+- Type definitions → tools/forge-codegen (23 types internally, no guessing!)
+- Platform specs → libs/moku-models (Go/Lab/Pro/Delta hardware specs)
+- Probe specs → libs/riscure-models (DS1120A voltage ranges)
+- VHDL utilities → libs/forge-vhdl (3 voltage domains, CocoTB tested)
+
+**Never:**
+- Skip FORGE control scheme (CR0[31:29] is MANDATORY for all Moku instruments!)
+- Use Control Registers directly in main app (use app_reg_* abstraction!)
+- Infer types that don't exist
+- Guess platform clock frequencies
+- Assume voltage compatibility without validation
+- Use enums for FSM states (Verilog incompatible!)
+
+### Agent Delegation
+
+**Monorepo-level coordination (.claude/):**
+- deployment-orchestrator - Hardware deployment workflows
+- hardware-debug - FSM debugging expertise
+- probe-design-orchestrator - Multi-stage workflows
+
+**Delegation principle:**
+- Monorepo agents coordinate
+- Submodule work happens within submodules
+- Clear boundaries, no duplication
+
+## Key Design Principles
+
+1. **Clean Separation (v2.0)** - tools/ vs libs/ (no nested submodules)
+2. **Tiered docs** - llms.txt (quick ref) → CLAUDE.md (deep dive) → source
+3. **Agent delegation** - Monorepo coordinates, submodules execute
+4. **Single source of truth** - Each submodule is authoritative for its domain
+5. **Context efficiency** - Load minimally, expand as needed
+6. **Type safety throughout** - Pydantic validation, voltage domain safety
+
+## Development Notes
+
+### Git Submodule Workflow
+
+```bash
+# Initialize all submodules
+git submodule update --init --recursive
+
+# Update specific submodule
+cd libs/moku-models
+git pull origin main
+cd ../..
+git add libs/moku-models
+git commit -m "Update moku-models submodule"
+
+# Push both submodule and parent
+git push
+```
+
+### Quick Start
+
+```bash
+# Clone template (submodules are inlined, no --recurse-submodules needed)
+git clone https://github.com/vmars-20/FORGE-Template.git
+
+# Setup Python environment
+uv sync
+
+# Run tests
+pytest
+```
+
+## Quick Links
+
+### FORGE Architecture (Essential)
+- **Root guide:** [CLAUDE.md](CLAUDE.md) - Complete FORGE architecture specification
+- **MCC interface:** [libs/platform/MCC_CustomInstrument.vhd](libs/platform/MCC_CustomInstrument.vhd) - Authoritative entity
+- **Wrapper template:** [libs/platform/FORGE_App_Wrapper.vhd](libs/platform/FORGE_App_Wrapper.vhd) - 3-layer pattern
+- **BPD reference:** [examples/basic-probe-driver/vhdl/](examples/basic-probe-driver/vhdl/) - Production implementation
+
+### Documentation
+- **Architecture overview:** [.claude/shared/ARCHITECTURE_OVERVIEW.md](.claude/shared/ARCHITECTURE_OVERVIEW.md) (v2.0)
+- **Migration history:** [ARCHITECTURE_V2_COMPLETE.md](ARCHITECTURE_V2_COMPLETE.md)
+- **Workflow guide:** [WORKFLOW_GUIDE.md](WORKFLOW_GUIDE.md)
+- **Voltage type system:** [docs/migration/VOLTAGE_TYPE_SYSTEM_DESIGN.md](docs/migration/VOLTAGE_TYPE_SYSTEM_DESIGN.md)
+
+### Agents
+- **Monorepo agents:** [.claude/agents/](.claude/agents/) (deployment, hardware-debug, probe-design)
+
+### Workspace
+- **Obsidian integration:** [Obsidian/llms.txt](Obsidian/llms.txt) | [README.md](Obsidian/README.md) (agent-human collaboration)
+
+### Submodule Context
+- **forge-codegen:** [llms.txt](tools/forge-codegen/llms.txt) | [CLAUDE.md](tools/forge-codegen/CLAUDE.md)
+- **forge-vhdl:** [llms.txt](libs/forge-vhdl/llms.txt) | [CLAUDE.md](libs/forge-vhdl/CLAUDE.md)
+- **moku-models:** [llms.txt](libs/moku-models/llms.txt) | [CLAUDE.md](libs/moku-models/CLAUDE.md)
+- **riscure-models:** [llms.txt](libs/riscure-models/llms.txt) | [CLAUDE.md](libs/riscure-models/CLAUDE.md)
+
+---
+
+**Version:** v2.0.0
+**Last Updated:** 2025-11-07
+**Architecture:** FORGE 3-layer (CR0[31:29] control scheme + app_reg_* abstraction)
+**Session Management:** Obsidian + /obsd_* commands + /compact harvesting
+**Main Branch:** main
+**License:** MIT

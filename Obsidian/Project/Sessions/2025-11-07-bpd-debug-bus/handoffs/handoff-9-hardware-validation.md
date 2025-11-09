@@ -1,0 +1,1 @@
+../../../Handoffs/2025-11-07/2025-11-07-handoff-9-hardware-validation.md

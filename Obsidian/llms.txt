@@ -1,0 +1,184 @@
+# Obsidian Workspace - Quick Reference
+
+**Purpose:** Git-integrated Obsidian workspace for agent-human collaboration
+**Location:** `Obsidian/` (vault root is repository root)
+
+---
+
+## Core Concept (50 words)
+
+Obsidian vault embedded in git repo for Claude-human collaboration. Notes are **ephemeral working memory** (git commits are permanent history). Use `@claude` and `@human` mentions for attention routing. Wikilinks connect notes to code files.
+
+**Vault root = Repo root** - Link to any file: `[[CLAUDE.md]]`, `[[libs/forge-vhdl/llms.txt]]`
+
+---
+
+## Directory Structure
+
+```
+Obsidian/
+├── Project/               Active workspace
+│   ├── Handoffs/         Session continuation notes (ephemeral)
+│   └── Prompts/          Reusable prompt library (permanent)
+└── Templates/            Templater templates
+```
+
+---
+
+## Attention Routing
+
+**Use @ mentions in notes:**
+- `@claude` - Claude should act on this
+- `@human` - Human decision/input required
+
+**Finding attention-needed notes:**
+```bash
+grep -r "@claude" Obsidian/Project/   # Claude's TODO list
+grep -r "@human" Obsidian/Project/    # Human's TODO list
+```
+
+---
+
+## Key Workflows
+
+### 1. Session Handoff (Multi-Session Work)
+```markdown
+# End of session
+1. Create: Obsidian/Project/Handoffs/2025-11-06-1500-topic.md
+2. Document: Context, next steps, blockers
+3. Add: "@claude please continue by..."
+4. Save
+
+# Next session
+1. Read handoff
+2. Load referenced files (via wikilinks)
+3. Continue work
+4. Delete handoff after commit (history in git)
+```
+
+### 2. Reusable Prompt
+```markdown
+# Create prompt library entry
+1. Create: Obsidian/Project/Prompts/analyze-topic.md
+2. Document: Purpose, prompt text, usage notes
+3. Commit to git (permanent)
+
+# Later use
+1. Read prompt note
+2. Copy prompt text
+3. Adapt to current task
+4. Execute
+```
+
+### 3. Task Coordination
+```markdown
+# Create task note
+1. Document: Task description
+2. Add: "- [ ] @claude implement feature X"
+3. Add: "- [ ] @human review design"
+4. Both track progress
+```
+
+---
+
+## Templates
+
+**Available (Templater plugin):**
+- `handoff.md` - Session continuation
+- `prompt.md` - Reusable prompt
+- `task.md` - Task tracking
+
+**Usage:** Create note → Insert template → Fill placeholders
+
+---
+
+## Naming Conventions
+
+**Handoffs:** `YYYY-MM-DD-HHMM-<topic>.md` (temporal, ephemeral)
+**Prompts:** `<verb>-<noun>-<qualifier>.md` (timeless, permanent)
+
+**Examples:**
+- `Handoffs/2025-11-06-1500-fsm-debug.md`
+- `Prompts/analyze-vhdl-packages.md`
+
+---
+
+## Git Integration
+
+**DO commit:**
+- ✅ Reusable prompts (Prompts/)
+- ✅ Active handoffs (if mid-work)
+
+**DON'T commit (or clean up):**
+- ❌ Completed handoffs (delete after commit)
+- ❌ Temporary scratch notes
+
+**Rationale:** Git commits = source of truth for history. Obsidian = active working memory.
+
+---
+
+## For Claude: When to Use
+
+**Create handoff when:**
+- Session ending mid-task
+- Complex context spanning sessions
+- Blocked on decision/input
+
+**Read handoff when:**
+- User points to handoff note
+- Continuing previous session work
+- User says "continue from last session"
+
+**Use @claude/@human when:**
+- Routing work to Claude
+- Requesting human decision
+- Delegating tasks
+
+---
+
+## Relationship to .claude/
+
+**Different purposes:**
+- `.claude/` - Agent infrastructure (agent definitions, shared knowledge)
+- `Obsidian/` - User workspace (active collaboration, ephemeral notes)
+
+**Both exist:** Use `.claude/` for agent system, `Obsidian/` for user-facing collaboration.
+
+---
+
+## Quick Reference Commands
+
+```bash
+# Find handoffs needing attention
+ls -lt Obsidian/Project/Handoffs/        # Newest first
+grep -l "@claude" Obsidian/Project/Handoffs/*.md
+
+# Find reusable prompts
+ls Obsidian/Project/Prompts/
+
+# Search by topic
+grep -r "voltage" Obsidian/Project/
+```
+
+---
+
+## Full Documentation
+
+- [[Obsidian/Project/README.md]] - Complete system guide
+- [[Obsidian/Templates/README.md]] - Template documentation
+- [[Obsidian/Project/Handoffs/README.md]] - Handoff conventions
+- [[Obsidian/Project/Prompts/README.md]] - Prompt library guide
+
+---
+
+## Design Principles
+
+1. **Git-first history** - Commits are permanent, notes are ephemeral
+2. **Vault-at-repo-root** - Wikilinks to code files work naturally
+3. **Simple attention routing** - `@claude` / `@human` mentions
+4. **No complex automation** - Simple templates, no JavaScript
+
+---
+
+**Created:** 2025-11-06
+**Token count:** ~400 tokens (Tier 1 loadable)
