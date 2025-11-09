@@ -43,7 +43,7 @@ def load_config(input_path: Optional[Path] = None) -> MokuConfig:
     else:
         # Read from stdin
         content = sys.stdin.read()
-        if not content.strip():
+        if not content or not content.strip():
             print("Error: No input provided (stdin is empty)", file=sys.stderr)
             sys.exit(1)
         try:
