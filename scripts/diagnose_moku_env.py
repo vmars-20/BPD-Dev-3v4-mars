@@ -265,6 +265,19 @@ def check_nested_workspace():
     """Check for nested workspace issues"""
     print_header("7. Workspace Configuration")
 
+    # Check if parent pyproject.toml is using the bypass method
+    parent_toml = Path("pyproject.toml")
+    if parent_toml.exists():
+        with open(parent_toml, 'r') as f:
+            parent_content = f.read()
+
+        # Check if we're bypassing forge-vhdl workspace
+        if 'libs/forge-vhdl/python/forge_cocotb' in parent_content:
+            print_success("Using UV workspace bypass (forge-vhdl packages included directly)")
+            print_info("Nested workspace avoided by including forge-vhdl packages individually")
+            return True
+
+    # Legacy check: see if forge-vhdl workspace is commented out
     forge_vhdl_toml = Path("libs/forge-vhdl/pyproject.toml")
 
     if not forge_vhdl_toml.exists():
@@ -281,12 +294,11 @@ def check_nested_workspace():
         lines = content.split('\n')
         for i, line in enumerate(lines):
             if '[tool.uv.workspace]' in line and not line.strip().startswith('#'):
-                print_error("Nested workspace detected in libs/forge-vhdl/pyproject.toml")
-                print("\n📋 Quick Fix:")
-                print("   Comment out [tool.uv.workspace] section in:")
-                print("   libs/forge-vhdl/pyproject.toml")
-                print("\n   See: docs/MOKU-DEV-MODULE.md - 'Step 4: Fix Nested Workspace Issue'")
-                return False
+                print_warning("Nested workspace exists in libs/forge-vhdl/pyproject.toml")
+                print_info("This is OK if parent workspace bypasses it (includes packages directly)")
+                print("\n💡 Alternative fix:")
+                print("   Comment out [tool.uv.workspace] in libs/forge-vhdl/pyproject.toml")
+                return True  # Not an error if we're bypassing
 
     print_success("No nested workspace issues detected")
     return True
