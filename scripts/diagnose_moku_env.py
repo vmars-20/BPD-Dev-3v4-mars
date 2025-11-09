@@ -172,7 +172,11 @@ def check_moku_source(moku_info):
                     print("   • 3-tier documentation (llms.txt → CLAUDE.md → source)")
                     print("   • Session introspection guides")
                     print("   • Integration examples with moku-models")
-                    print("\n📖 Documentation: /tmp/moku-llm-annotated/")
+                    print("\n📖 Fork Repository:")
+                    print("   git@github.com:vmars-20/moku-3.0.4.1-llm-dev.git")
+                    print("\n💡 To browse documentation:")
+                    print("   git clone git@github.com:vmars-20/moku-3.0.4.1-llm-dev.git ~/Development/moku-llm-dev")
+                    print("   # Then read: CLAUDE.md, llms.txt, README_LLM.md")
                     return 'github'
                 else:
                     print_info("Using standard installation")
@@ -301,7 +305,7 @@ def print_summary(results):
         print("   • Import moku in your scripts: from moku.instruments import MultiInstrument")
         print("   • See examples: docs/MOKU-DEV-MODULE.md")
         if 'moku_source' in results and results['moku_source'] == 'github':
-            print("   • Fork documentation: /tmp/moku-llm-annotated/")
+            print("   • Fork docs: git clone git@github.com:vmars-20/moku-3.0.4.1-llm-dev.git")
     else:
         print(f"{Colors.YELLOW}{Colors.BOLD}⚠ Some issues detected{Colors.END}")
         print("\n📖 For detailed troubleshooting, see:")
