@@ -4,11 +4,13 @@ requires-python = ">=3.10"
 
 [manifest]
 members = [
+    "forge-cocotb",
     "forge-codegen",
+    "forge-platform",
+    "forge-tools",
     "moku-instrument-forge-mono-repo",
     "moku-models",
     "riscure-models",
-    "vhdl-forge",
 ]
 
 [[package]]
@@ -240,6 +242,21 @@ wheels = [
 ]
 
 [[package]]
+name = "forge-cocotb"
+version = "3.0.0"
+source = { editable = "libs/forge-vhdl/python/forge_cocotb" }
+dependencies = [
+    { name = "cocotb" },
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "cocotb", specifier = ">=1.8.0" },
+    { name = "pytest", specifier = ">=7.0.0" },
+]
+
+[[package]]
 name = "forge-codegen"
 version = "1.0.0"
 source = { editable = "tools/forge-codegen" }
@@ -257,6 +274,26 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pyyaml", specifier = ">=6.0" },
 ]
+
+[[package]]
+name = "forge-platform"
+version = "3.0.0"
+source = { editable = "libs/forge-vhdl/python/forge_platform" }
+dependencies = [
+    { name = "cocotb" },
+    { name = "pyyaml" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "cocotb", specifier = ">=1.8.0" },
+    { name = "pyyaml", specifier = ">=6.0.0" },
+]
+
+[[package]]
+name = "forge-tools"
+version = "3.0.0"
+source = { editable = "libs/forge-vhdl/python/forge_tools" }
 
 [[package]]
 name = "idna"
@@ -961,34 +998,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/15/22/9ee70a2574a4f4599
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a7/c2/fe1e52489ae3122415c51f387e221dd0773709bad6c6cdaa599e8a2c5185/urllib3-2.5.0-py3-none-any.whl", hash = "sha256:e6b01673c0fa6a13e374b50871808eb3bf7046c4b125b216f6bf1cc604cff0dc", size = 129795 },
 ]
-
-[[package]]
-name = "vhdl-forge"
-version = "3.1.0"
-source = { virtual = "libs/forge-vhdl" }
-dependencies = [
-    { name = "cocotb" },
-    { name = "pytest" },
-    { name = "pyyaml" },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "black" },
-    { name = "pytest-xdist" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "black", marker = "extra == 'dev'", specifier = ">=24.0.0" },
-    { name = "cocotb", specifier = ">=1.8.0" },
-    { name = "pytest", specifier = ">=7.0.0" },
-    { name = "pytest-xdist", marker = "extra == 'dev'", specifier = ">=3.0.0" },
-    { name = "pyyaml", specifier = ">=6.0.0" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
-]
-provides-extras = ["dev"]
 
 [[package]]
 name = "win32-setctime"
