@@ -125,11 +125,67 @@ def main():
             elif slot_config.instrument == 'Oscilloscope':
                 print(f"  Slot {slot_num}: Oscilloscope")
                 osc = moku.set_instrument(slot_num, Oscilloscope)
+                
+                # Configure frontend (input channels)
                 if slot_config.settings:
+                    # Filter out sample_rate (not a valid set_frontend parameter)
+                    # Sample rate is platform-dependent and set automatically
+                    frontend_settings = {
+                        k: v for k, v in slot_config.settings.items()
+                        if k != 'sample_rate'
+                    }
+                    
+                    if frontend_settings:
+                        try:
+                            osc.set_frontend(1, **frontend_settings)
+                        except Exception as e:
+                            print(f"    ⚠ Warning: Settings = {e}")
+                    
+                    # Note: sample_rate is platform-dependent and cannot be set directly
+                    # It's determined by the Moku device (e.g., 125 MSa/s for Moku:Go)
+                    if 'sample_rate' in slot_config.settings:
+                        print(f"    ℹ Note: sample_rate is platform-dependent (not configurable)")
+                
+                # Configure waveform generator output (if specified)
+                if slot_config.waveform_output:
+                    waveform_config = slot_config.waveform_output
                     try:
-                        osc.set_frontend(1, **slot_config.settings)
+                        channel = waveform_config.get('channel', 1)
+                        enable = waveform_config.get('enable', True)
+                        waveform_type = waveform_config.get('waveform_type', 'Square')
+                        frequency = waveform_config.get('frequency', 1000)
+                        amplitude = waveform_config.get('amplitude', 2.5)
+                        offset = waveform_config.get('offset', 1.25)
+                        duty = waveform_config.get('duty', None)  # Optional, for square waves
+                        
+                        if enable:
+                            # Configure waveform generator output using Oscilloscope's built-in generator
+                            # Moku API: generate_waveform(channel, type, amplitude=..., frequency=..., offset=..., duty=...)
+                            # Note: waveform_type should be capitalized (e.g., 'Sine', 'Square', 'Triangle')
+                            kwargs = {
+                                'amplitude': amplitude,
+                                'frequency': frequency,
+                            }
+                            if offset is not None:
+                                kwargs['offset'] = offset
+                            # Square waves require duty cycle parameter (even if not specified)
+                            if waveform_type.lower() == 'square':
+                                kwargs['duty'] = duty if duty is not None else 50  # Default 50% duty cycle
+                            
+                            osc.generate_waveform(channel, waveform_type, **kwargs)
+                            print(f"    ✓ Waveform Generator Output{channel}: {waveform_type} @ {frequency} Hz, {amplitude}V amplitude", end="")
+                            if offset is not None:
+                                print(f", {offset}V offset", end="")
+                            if waveform_type.lower() == 'square':
+                                # Always show duty cycle for square waves
+                                duty_value = duty if duty is not None else 50
+                                print(f", {duty_value}% duty", end="")
+                            print()
+                        else:
+                            print(f"    ℹ Waveform Generator Output{channel}: disabled")
                     except Exception as e:
-                        print(f"    ⚠ Warning: Settings = {e}")
+                        print(f"    ⚠ Warning: Waveform generator configuration failed: {e}")
+                        print(f"    ℹ Note: Check that waveform_type is valid (e.g., 'Sine', 'Square', 'Triangle')")
             
             else:
                 print(f"  Slot {slot_num}: {slot_config.instrument} (not implemented, skipping)")
