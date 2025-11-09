@@ -54,19 +54,21 @@ def load_config(input_path: Optional[Path] = None) -> MokuConfig:
 @app.command()
 def deploy(
     device: str = typer.Option(..., "--device", "-d", help="Device IP address"),
-    config: Optional[Path] = typer.Option(None, "--config", "-c", help="Path to deployment config (YAML/JSON)"),
+    input_file: Optional[Path] = typer.Option(None, "-i", "--input", help="Input config file (YAML/JSON), defaults to stdin"),
     force: bool = typer.Option(False, "-D", help="Force mode: disconnect all, overwrite, no compatibility checking"),
 ):
     """
     Deploy configuration to Moku device.
     
+    Reads config from stdin by default, or -i for file.
+    
     Default (interactive): Politely request information, always get user permission.
     -D (force): Force disconnect all connections, overwrite state, no compatibility checking.
     """
-    # Load config
-    if config:
-        print(f"Loading config from {config}...")
-        desired_config = load_config(config)
+    # Load config (from stdin by default, or -i for file)
+    if input_file:
+        print(f"Loading config from {input_file}...")
+        desired_config = load_config(input_file)
     else:
         print("Reading config from stdin...")
         desired_config = load_config()
