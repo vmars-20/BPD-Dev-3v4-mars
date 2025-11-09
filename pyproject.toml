@@ -42,8 +42,14 @@ dev = [
 [tool.uv.workspace]
 # Declare submodules as workspace members
 # uv will manage these as a unified dependency graph
+#
+# NOTE: forge-vhdl packages included directly to avoid nested workspace issue
+# Instead of including "libs/forge-vhdl" (which has its own workspace),
+# we include its member packages directly
 members = [
-    "libs/forge-vhdl",
+    "libs/forge-vhdl/python/forge_cocotb",    # Bypass forge-vhdl workspace
+    "libs/forge-vhdl/python/forge_platform",
+    "libs/forge-vhdl/python/forge_tools",
     "libs/moku-models",
     "libs/riscure-models",
     "tools/forge-codegen",
