@@ -223,6 +223,111 @@ def read(
 
 
 @app.command()
+def show(
+    input_file: Optional[Path] = typer.Option(None, "-i", "--input", help="Input config file (YAML/JSON), defaults to stdin"),
+):
+    """
+    Display MokuConfig as ASCII art visualization.
+    
+    Reads from stdin by default, or -i for file.
+    Shows platform, slots, instruments, and routing in visual format.
+    """
+    # Load config
+    config = load_config(input_file)
+    
+    # Validate
+    errors = config.validate_routing()
+    if errors:
+        print("Validation errors:", file=sys.stderr)
+        for error in errors:
+            print(f"  - {error}", file=sys.stderr)
+        sys.exit(1)
+    
+    # ASCII Art Output
+    print("\n" + "=" * 70)
+    print(" MOKU CONFIGURATION")
+    print("=" * 70)
+    
+    # Platform Info
+    platform = config.platform
+    print(f"\n📡 Platform: {platform.name}")
+    if platform.ip_address:
+        print(f"   IP: {platform.ip_address}")
+    print(f"   Clock: {platform.clock_mhz} MHz")
+    print(f"   Slots: {platform.slots}")
+    print(f"   Inputs: {len(platform.analog_inputs)} ({', '.join([inp.port_id for inp in platform.analog_inputs])})")
+    print(f"   Outputs: {len(platform.analog_outputs)} ({', '.join([out.port_id for out in platform.analog_outputs])})")
+    
+    # Slots Visualization
+    print("\n" + "-" * 70)
+    print(" SLOTS")
+    print("-" * 70)
+    
+    if not config.slots:
+        print("  (empty)")
+    else:
+        for slot_num in sorted(config.slots.keys()):
+            slot_config = config.slots[slot_num]
+            print(f"\n  ┌─ Slot {slot_num} ──────────────────────────────────────────────┐")
+            print(f"  │ Instrument: {slot_config.instrument:<50} │")
+            
+            if slot_config.bitstream:
+                bitstream_name = Path(slot_config.bitstream).name
+                print(f"  │ Bitstream:  {bitstream_name:<50} │")
+            
+            if slot_config.control_registers:
+                regs_str = ", ".join([f"CR{r}={v}" for r, v in sorted(slot_config.control_registers.items())[:3]])
+                if len(slot_config.control_registers) > 3:
+                    regs_str += f" ... (+{len(slot_config.control_registers)-3} more)"
+                print(f"  │ Registers:   {regs_str:<50} │")
+            
+            if slot_config.settings:
+                settings_str = str(slot_config.settings)[:50]
+                if len(str(slot_config.settings)) > 50:
+                    settings_str += "..."
+                print(f"  │ Settings:    {settings_str:<50} │")
+            
+            print(f"  └──────────────────────────────────────────────────────────────┘")
+    
+    # Routing Visualization
+    print("\n" + "-" * 70)
+    print(" ROUTING")
+    print("-" * 70)
+    
+    if not config.routing:
+        print("  (no routing configured)")
+    else:
+        # Group by source
+        routing_by_source = {}
+        for conn in config.routing:
+            if conn.source not in routing_by_source:
+                routing_by_source[conn.source] = []
+            routing_by_source[conn.source].append(conn.destination)
+        
+        for source in sorted(routing_by_source.keys()):
+            destinations = routing_by_source[source]
+            arrow = "─" * (50 - len(source) - len(destinations[0]) - 5)
+            if len(destinations) == 1:
+                print(f"  {source:<20} {arrow}→ {destinations[0]}")
+            else:
+                print(f"  {source:<20} {arrow}→ {destinations[0]}")
+                for dest in destinations[1:]:
+                    print(f"  {' ':<20} {'─' * 50}→ {dest}")
+    
+    # Metadata
+    if config.metadata:
+        print("\n" + "-" * 70)
+        print(" METADATA")
+        print("-" * 70)
+        for key, value in config.metadata.items():
+            if isinstance(value, str) and len(value) > 50:
+                value = value[:47] + "..."
+            print(f"  {key}: {value}")
+    
+    print("\n" + "=" * 70 + "\n")
+
+
+@app.command()
 def export(
     device: str = typer.Option(..., "--device", "-d", help="Device IP address"),
     output_file: Optional[Path] = typer.Option(None, "-o", "--output", help="Output file (JSON), defaults to stdout"),
