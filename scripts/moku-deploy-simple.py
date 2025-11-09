@@ -222,5 +222,135 @@ def read(
         print(output)
 
 
+@app.command()
+def export(
+    device: str = typer.Option(..., "--device", "-d", help="Device IP address"),
+    output_file: Optional[Path] = typer.Option(None, "-o", "--output", help="Output file (JSON), defaults to stdout"),
+    force: bool = typer.Option(False, "-D", help="Force mode: disconnect all connections"),
+):
+    """
+    Export current device state as validated MokuConfig.
+    
+    Connects to device, reads current state, outputs as validated Pydantic model.
+    Outputs to stdout by default, or -o for file.
+    """
+    from datetime import datetime, timezone
+    from moku_models import SlotConfig, MokuConnection
+    
+    # Determine platform (try common ones)
+    platform_id_map = {
+        1: "Moku:Lab",
+        2: "Moku:Go", 
+        3: "Moku:Pro",
+        4: "Moku:Delta",
+    }
+    
+    # Try to connect and detect platform
+    print(f"Connecting to {device}...")
+    platform_id = 2  # Default to Go
+    moku = None
+    
+    for pid in [2, 1, 3, 4]:  # Try Go, Lab, Pro, Delta
+        try:
+            moku = MultiInstrument(
+                device,
+                platform_id=pid,
+                force_connect=force,
+                persist_state=True
+            )
+            platform_id = pid
+            platform_name = platform_id_map[pid]
+            print(f"  ✓ Connected (platform: {platform_name})")
+            break
+        except Exception as e:
+            if "already exists" in str(e).lower() and not force:
+                print(f"  Device is already connected. Use -D to force disconnect.")
+                sys.exit(1)
+            continue
+    
+    if moku is None:
+        print("  ✗ Could not connect to device")
+        sys.exit(1)
+    
+    try:
+        # Get current instruments
+        instruments = moku.get_instruments() or []
+        slots = {}
+        for slot_num, instrument_name in enumerate(instruments, start=1):
+            if instrument_name and instrument_name.strip():
+                slots[slot_num] = SlotConfig(
+                    instrument=instrument_name.strip(),
+                    settings={},
+                    bitstream=None,
+                    control_registers=None,
+                )
+        
+        # Get current routing
+        connections_raw = moku.get_connections() or []
+        routing = []
+        for conn in connections_raw:
+            if isinstance(conn, dict) and 'source' in conn and 'destination' in conn:
+                routing.append(MokuConnection(
+                    source=conn['source'],
+                    destination=conn['destination']
+                ))
+        
+        # Get platform object
+        from moku_models import (
+            MOKU_GO_PLATFORM,
+            MOKU_LAB_PLATFORM,
+            MOKU_PRO_PLATFORM,
+            MOKU_DELTA_PLATFORM,
+        )
+        platform_map = {
+            1: MOKU_LAB_PLATFORM,
+            2: MOKU_GO_PLATFORM,
+            3: MOKU_PRO_PLATFORM,
+            4: MOKU_DELTA_PLATFORM,
+        }
+        platform = platform_map[platform_id].model_copy()
+        platform.ip_address = device
+        
+        # Create MokuConfig
+        if not slots:
+            # Empty device - use model_construct to bypass validation
+            config = MokuConfig.model_construct(
+                platform=platform,
+                slots={},
+                routing=routing,
+                metadata={
+                    'exported_at': datetime.now(timezone.utc).isoformat(),
+                    'source': 'device_export',
+                    'note': 'Device has no instruments deployed'
+                }
+            )
+        else:
+            config = MokuConfig(
+                platform=platform,
+                slots=slots,
+                routing=routing,
+                metadata={
+                    'exported_at': datetime.now(timezone.utc).isoformat(),
+                    'source': 'device_export'
+                }
+            )
+        
+        # Output as JSON (validated Pydantic model)
+        output = json.dumps(config.model_dump(), indent=2)
+        
+        if output_file:
+            output_file.write_text(output)
+            print(f"\n✓ Exported config to {output_file}", file=sys.stderr)
+        else:
+            print(output)
+    
+    finally:
+        # Graciously disconnect
+        try:
+            moku.relinquish_ownership()
+        except Exception as e:
+            print(f"  ⚠ Warning during disconnect: {e}", file=sys.stderr)
+
+
 if __name__ == "__main__":
     app()
