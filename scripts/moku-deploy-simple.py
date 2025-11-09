@@ -43,10 +43,17 @@ def load_config(input_path: Optional[Path] = None) -> MokuConfig:
     else:
         # Read from stdin
         content = sys.stdin.read()
+        if not content.strip():
+            print("Error: No input provided (stdin is empty)", file=sys.stderr)
+            sys.exit(1)
         try:
             data = yaml.safe_load(content)
         except:
             data = json.loads(content)
+    
+    if data is None:
+        print("Error: Failed to parse config (empty or invalid)", file=sys.stderr)
+        sys.exit(1)
     
     # Handle string platform identifiers (convert to platform object)
     if isinstance(data.get('platform'), str):
