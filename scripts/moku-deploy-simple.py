@@ -48,6 +48,26 @@ def load_config(input_path: Optional[Path] = None) -> MokuConfig:
         except:
             data = json.loads(content)
     
+    # Handle string platform identifiers (convert to platform object)
+    if isinstance(data.get('platform'), str):
+        from moku_models import (
+            MOKU_GO_PLATFORM,
+            MOKU_LAB_PLATFORM,
+            MOKU_PRO_PLATFORM,
+            MOKU_DELTA_PLATFORM,
+        )
+        platform_map = {
+            'moku_go': MOKU_GO_PLATFORM,
+            'moku_lab': MOKU_LAB_PLATFORM,
+            'moku_pro': MOKU_PRO_PLATFORM,
+            'moku_delta': MOKU_DELTA_PLATFORM,
+        }
+        platform_str = data['platform'].lower()
+        if platform_str in platform_map:
+            data['platform'] = platform_map[platform_str].model_dump()
+        else:
+            raise ValueError(f"Unknown platform: {platform_str}")
+    
     return MokuConfig.model_validate(data)
 
 
