@@ -25,7 +25,7 @@ dependencies = [
     "loguru>=0.7.0",      # Logging (moku-deploy)
     "rich>=13.0.0",       # Terminal UI (moku-deploy)
     "zeroconf>=0.131.0",  # mDNS discovery (moku-deploy)
-    "moku>=3.0.0",        # Liquid Instruments Moku API (moku-deploy)
+    "moku @ git+ssh://git@github.com/vmars-20/moku-3.0.4.1-llm-dev.git@main",  # LLM-annotated fork with session introspection
 ]
 
 [project.optional-dependencies]
