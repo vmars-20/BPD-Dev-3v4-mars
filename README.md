@@ -38,6 +38,16 @@ BPD-Dev-3v4/
 
 ---
 
+## 📐 Reference System Architecture
+
+**Complete BPD wiring and signal routing diagram:**
+
+![BPD Reference Wiring Diagram](static/BPD-Reference-Drawing.png)
+
+*Complete system architecture showing Moku device slots, internal MCC routing, physical BNC connections, and integration with Riscure DS1100 probe and DUT.*
+
+---
+
 ## 🔑 Key Concepts (for 2am debugging)
 
 ### FORGE = Safety Pattern for Moku Custom Instruments
@@ -86,6 +96,131 @@ uv sync
 # Verify everything loaded
 python -c "from moku_models import MOKU_GO_PLATFORM; print('✅ Ready!')"
 ```
+
+### Quick Start: Reading & Writing Device Configurations
+
+**Two simple scripts for device state management:**
+
+```bash
+# Read current device state (polite, non-invasive)
+# Default: writes to ./curr_model.json
+python scripts/moku_read.py $MOKU_IP
+
+# Read with detailed settings (frontend, control registers, etc.)
+python scripts/moku_read.py $MOKU_IP --level 2
+
+# Write configuration to device
+python scripts/moku_write.py my_config.yaml $MOKU_IP
+
+# Read → Validate → Write workflow
+python scripts/moku_read.py $MOKU_IP -o current.json
+python scripts/moku_write.py current.json $MOKU_IP
+```
+
+**Key Features:**
+- `moku_read.py`: Progressive escalation (Level 1=basic, 2=detailed, 3=maximum)
+- `moku_write.py`: Direct deployment (force connect, overwrites device state)
+- Both output/accept validated `MokuConfig` Pydantic models
+- Supports YAML and JSON formats
+
+### Reference Wiring Diagrams
+
+> **📐 See also:** [Complete BPD Reference Diagram](static/BPD-Reference-Drawing.png) - Full system architecture with Moku UI, physical wiring, and probe integration
+
+**Setup 1: Self-Contained Testing (Dummy DUT)**
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Moku:Go Platform                          │
+│                                                               │
+│  ┌──────────────┐              ┌──────────────┐            │
+│  │  Slot 1      │              │  Slot 2       │            │
+│  │ Oscilloscope │              │  CloudCompile │            │
+│  │              │              │  (BPD)       │            │
+│  │  InputA ─────┼──────────────┼─ OutputC      │            │
+│  │  (Debug-Bus)│              │  (14-bit HVS) │            │
+│  │              │              │              │            │
+│  │  InputB ─────┼──────────────┼─ InputB      │            │
+│  │  (Monitor)   │              │  (Monitor)   │            │
+│  │              │              │              │            │
+│  │  OutputA ────┼──────────────┼─ InputA      │            │
+│  │  (Pattern Gen)             │  (Trigger)   │            │
+│  └──────────────┘              └──────────────┘            │
+│         │                              │                    │
+│         │                              │                    │
+│    PHY_IN2 ───────────────────────────┘                    │
+│    (Probe Monitor)                                          │
+│                                                               │
+│    PHY_OUT1 ←───────────────────────────────────────────────┘
+│    (digital_glitch)                                         │
+│                                                               │
+│    PHY_OUT2 ←───────────────────────────────────────────────┘
+│    (pulse_amplitude)                                        │
+└─────────────────────────────────────────────────────────────┘
+         │                              │                    │
+         │                              │                    │
+    ┌────▼────┐                    ┌────▼────┐              │
+    │ PHY_IN2 │                    │ PHY_OUT1│              │
+    │ (BNC)   │                    │ (BNC)   │              │
+    └────┬────┘                    └────┬────┘              │
+         │                              │                    │
+    ┌────▼──────────────────────────────▼────┐              │
+    │         DS1120A Probe                   │              │
+    │  • coil_current (monitor)             │              │
+    │  • digital_glitch (trigger)            │              │
+    │  • pulse_amplitude (intensity)          │              │
+    └─────────────────────────────────────────┘              │
+```
+
+**Setup 2: Real DUT (Production FI Campaigns)**
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Moku:Go Platform                          │
+│                                                               │
+│  ┌──────────────┐              ┌──────────────┐            │
+│  │  Slot 1      │              │  Slot 2       │            │
+│  │ Oscilloscope │              │  CloudCompile │            │
+│  │              │              │  (BPD)       │            │
+│  │  InputA ─────┼──────────────┼─ OutputC      │            │
+│  │  (Debug-Bus)│              │  (14-bit HVS) │            │
+│  │              │              │              │            │
+│  │  InputB ─────┼──────────────┼─ InputB      │            │
+│  │  (Monitor)   │              │  (Monitor)   │            │
+│  └──────────────┘              └──────────────┘            │
+│         │                              │                    │
+│    PHY_IN1 ────────────────────────────┼─ InputA            │
+│    (DUT Trigger)                       │  (Trigger)         │
+│         │                              │                    │
+│    PHY_IN2 ────────────────────────────┼─ InputB            │
+│    (Probe Monitor)                     │  (Monitor)         │
+│         │                              │                    │
+│    PHY_OUT1 ←───────────────────────────┼─ OutputA           │
+│    (digital_glitch)                    │                    │
+│         │                              │                    │
+│    PHY_OUT2 ←───────────────────────────┼─ OutputB           │
+│    (pulse_amplitude)                    │                    │
+└─────────────────────────────────────────────────────────────┘
+         │                              │                    │
+    ┌────▼────┐                    ┌────▼────┐              │
+    │  DUT    │                    │ PHY_OUT1│              │
+    │ Trigger │                    │ (BNC)   │              │
+    │ (BNC)   │                    └────┬────┘              │
+    └─────────┘                         │                    │
+                                        │                    │
+    ┌───────────────────────────────────▼────────────────────┐
+    │         DS1120A Probe                                  │
+    │  • digital_glitch (trigger)                            │
+    │  • pulse_amplitude (intensity)                         │
+    │  • coil_current → PHY_IN2 (monitor)                    │
+    └────────────────────────────────────────────────────────┘
+```
+
+**Signal Descriptions:**
+- **PHY_IN1**: External DUT trigger (Setup 2 only, 0-5V TTL)
+- **PHY_IN2**: Probe coil current monitor (-1.4V to 0V, AC coupled)
+- **PHY_OUT1**: Probe digital_glitch trigger (0-3.3V TTL)
+- **PHY_OUT2**: Probe pulse_amplitude control (0-3.3V analog)
+- **Slot2.OutputC**: BPD-Debug-Bus (14-bit HVS encoded FSM state)
+- **Slot1.OutputA**: Oscilloscope pattern generator (Setup 1 only, synthetic trigger)
 
 ### If You Forgot `--recurse-submodules` (we've all been there)
 
@@ -280,6 +415,32 @@ Copy BPD structure, replace logic:
 ---
 
 ## 🛠️ Common Development Tasks
+
+### Device Configuration Management
+
+**Primary tools for reading/writing device state:**
+
+```bash
+# Read current device configuration (polite, preserves state)
+python scripts/moku_read.py $MOKU_IP                    # Basic read → ./curr_model.json
+python scripts/moku_read.py $MOKU_IP --level 2          # Detailed read (frontend, CR, DIO)
+python scripts/moku_read.py $MOKU_IP -o config.json     # Custom output file
+
+# Write configuration to device (force connect, overwrites state)
+python scripts/moku_write.py my_config.yaml $MOKU_IP
+python scripts/moku_write.py curr_model.json $MOKU_IP
+
+# Complete workflow: Read → Inspect → Modify → Write
+python scripts/moku_read.py $MOKU_IP -o current.json
+# ... edit current.json ...
+python scripts/moku_write.py current.json $MOKU_IP
+```
+
+**Script Features:**
+- `moku_read.py`: Progressive escalation (1=basic, 2=detailed, 3=maximum invasiveness)
+- `moku_write.py`: Direct deployment (no safety checks, force connect)
+- Both use validated `MokuConfig` Pydantic models
+- Supports YAML and JSON formats
 
 ### Running BPD on Moku Hardware
 
