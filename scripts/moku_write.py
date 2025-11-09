@@ -102,8 +102,17 @@ def main():
                     print(f"  Slot {slot_num}: No bitstream, skipping")
                     continue
                 
-                print(f"  Slot {slot_num}: CloudCompile ({Path(slot_config.bitstream).name})")
-                cc = moku.set_instrument(slot_num, CloudCompile, bitstream=slot_config.bitstream)
+                # Resolve bitstream path (relative to project root or absolute)
+                bitstream_path = Path(slot_config.bitstream)
+                if not bitstream_path.is_absolute():
+                    bitstream_path = PROJECT_ROOT / bitstream_path
+                
+                if not bitstream_path.exists():
+                    print(f"  ✗ Error: Bitstream not found at {bitstream_path}")
+                    raise FileNotFoundError(f"Bitstream package not found at {bitstream_path}")
+                
+                print(f"  Slot {slot_num}: CloudCompile ({bitstream_path.name})")
+                cc = moku.set_instrument(slot_num, CloudCompile, bitstream=str(bitstream_path))
                 
                 # Apply control registers if specified
                 if slot_config.control_registers:
@@ -128,6 +137,7 @@ def main():
         # Configure routing
         if config.routing:
             print("\nConfiguring routing...")
+            # Port names are automatically normalized by MokuConnection validator
             connections = [
                 {'source': conn.source, 'destination': conn.destination}
                 for conn in config.routing
